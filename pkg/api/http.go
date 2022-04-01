@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sync"
@@ -124,6 +125,8 @@ func NewServer(db *persistence.DB) *Server {
 
 	authRoutesHandlers := &http.ServeMux{}
 	authRoutesHandlers.HandleFunc("/balance", srv.getBalance)
+	authRoutesHandlers.HandleFunc("/deposit", srv.doDeposit)
+	authRoutesHandlers.HandleFunc("/withdraw", srv.doWithdrawal)
 
 	srv.as = NewAuthServer(authRoutesHandlers)
 	mux.Handle("/", srv.as)
@@ -166,6 +169,76 @@ func (s *Server) getBalance(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fmt.Fprintf(w, "%d", balance)
+}
+
+func (s *Server) doDeposit(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(405)
+		fmt.Fprint(w, "not allowed")
+		return
+	}
+
+	sessItf := r.Context().Value(SessionKeyCtx)
+	if sessItf == nil {
+		panic("Session must not be nil if authenticated.")
+	}
+
+	sess := sessItf.(*Session)
+
+	depAmount := int64(-1)
+	dec := json.NewDecoder(r.Body)
+	err := dec.Decode(&depAmount)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to decode deposit amount")
+	}
+
+	err = s.db.DoTransaction(sess.Account, persistence.Transaction{
+		Type:   persistence.Deposit,
+		Amount: depAmount,
+	})
+	if err != nil {
+		log.Error().Err(err).Msg("transaction failed")
+		w.WriteHeader(500)
+		fmt.Fprint(w, "failed to perform deposit")
+		return
+	}
+
+	fmt.Fprint(w, "ok")
+}
+
+func (s *Server) doWithdrawal(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(405)
+		fmt.Fprint(w, "not allowed")
+		return
+	}
+
+	sessItf := r.Context().Value(SessionKeyCtx)
+	if sessItf == nil {
+		panic("Session must not be nil if authenticated.")
+	}
+
+	sess := sessItf.(*Session)
+
+	depAmount := int64(-1)
+	dec := json.NewDecoder(r.Body)
+	err := dec.Decode(&depAmount)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to decode withdrawn amount")
+	}
+
+	err = s.db.DoTransaction(sess.Account, persistence.Transaction{
+		Type:   persistence.Withdrawal,
+		Amount: depAmount,
+	})
+	if err != nil {
+		log.Error().Err(err).Msg("transaction failed")
+		w.WriteHeader(500)
+		fmt.Fprint(w, "failed to perform deposit")
+		return
+	}
+
+	fmt.Fprint(w, "ok")
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {

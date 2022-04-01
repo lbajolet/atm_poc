@@ -1,6 +1,7 @@
 package persistence
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 
@@ -39,6 +40,8 @@ func (d DB) Auth(pin string) (Account, error) {
 		))
 	}
 
+	defer stmt.Close()
+
 	acc := Account(-1)
 
 	res, err := stmt.Query(pin)
@@ -72,6 +75,8 @@ func (d DB) Balance(acc Account) (int64, error) {
 		))
 	}
 
+	defer stmt.Close()
+
 	res, err := stmt.Query(acc)
 	if err != nil {
 		log.Error().Err(err).Msg("query failed")
@@ -91,4 +96,88 @@ func (d DB) Balance(acc Account) (int64, error) {
 	}
 
 	return balance, nil
+}
+
+// TransactionType determines how the funds of an account will change
+type TransactionType int
+
+const (
+	// Error is the default value of the Transaction type
+	//
+	// It is only defined so the default value for a Transaction will not
+	// provoke misbehaviours
+	Error TransactionType = iota
+	// Deposit increases the amount of cash of an account
+	Deposit
+	// Withdrawal decreases the amount of cash on an account
+	Withdrawal
+)
+
+// Transaction is a financial movement for an account
+type Transaction struct {
+	Type   TransactionType
+	Amount int64
+}
+
+func (tx Transaction) getAmount() int64 {
+	switch tx.Type {
+	case Deposit:
+		return tx.Amount
+	case Withdrawal:
+		return -tx.Amount
+	}
+
+	panic("invalid transaction type")
+}
+
+const balanceUpdateQuery = "UPDATE users SET balance = (SELECT balance FROM users WHERE id = ?) + ? WHERE id = ?"
+
+const transactionInsertQuery = "INSERT INTO transactions(amount, user) VALUES(?, ?)"
+
+func (d DB) DoTransaction(acc Account, tx Transaction) error {
+	dbTx, err := d.connection.BeginTx(context.Background(), &sql.TxOptions{})
+	if err != nil {
+		log.Error().Err(err).Msg("failed to build DB transaction")
+		return err
+	}
+
+	bup, err := dbTx.Prepare(balanceUpdateQuery)
+	if err != nil {
+		panic(fmt.Sprintf(
+			"failed to build prepared statement, SQL error: %s",
+			err,
+		))
+	}
+	log.Info().Msg("Done preparing update")
+
+	_, err = bup.Exec(acc, tx.getAmount(), acc)
+	if err != nil {
+		log.Error().Err(err).Int("account_id", int(acc)).Msg("failed to update balance")
+		return dbTx.Rollback()
+	}
+
+	bup.Close()
+
+	log.Info().Msg("Done update")
+
+	txIns, err := dbTx.Prepare(transactionInsertQuery)
+	if err != nil {
+		panic(fmt.Sprintf(
+			"failed to build prepared statement, SQL error: %s",
+			err,
+		))
+	}
+	log.Info().Msg("Done preparing insert query")
+
+	_, err = txIns.Exec(acc, tx.getAmount())
+	if err != nil {
+		log.Error().Err(err).Int("account_id", int(acc)).Msg("failed to insert transaction")
+		return dbTx.Rollback()
+	}
+
+	log.Info().Msg("Done insert query")
+
+	txIns.Close()
+
+	return dbTx.Commit()
 }
