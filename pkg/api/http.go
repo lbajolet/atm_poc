@@ -154,7 +154,18 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getBalance(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprint(w, "OK")
+	sessItf := r.Context().Value(SessionKeyCtx)
+	if sessItf == nil {
+		panic("Session must not be nil if authenticated.")
+	}
+
+	sess := sessItf.(*Session)
+	balance, err := s.db.Balance(sess.Account)
+	if err != nil {
+		log.Error().Err(err).Int("account_id", int(sess.Account)).Msg("failed to get balance")
+	}
+
+	fmt.Fprintf(w, "%d", balance)
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {

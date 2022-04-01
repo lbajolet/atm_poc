@@ -59,3 +59,36 @@ func (d DB) Auth(pin string) (Account, error) {
 
 	return acc, nil
 }
+
+const balanceQuery = "SELECT balance FROM users WHERE id = ?"
+
+// Balance gets the current balance for the account
+func (d DB) Balance(acc Account) (int64, error) {
+	stmt, err := d.connection.Prepare(balanceQuery)
+	if err != nil {
+		panic(fmt.Sprintf(
+			"failed to build prepared statement, SQL error: %s",
+			err,
+		))
+	}
+
+	res, err := stmt.Query(acc)
+	if err != nil {
+		log.Error().Err(err).Msg("query failed")
+		return -1, err
+	}
+
+	if !res.Next() {
+		log.Error().Msg("empty rowset")
+		return -1, fmt.Errorf("no balance available for account")
+	}
+
+	balance := int64(-1)
+	err = res.Scan(&balance)
+	if err != nil {
+		log.Error().Err(err).Msg("scan failed")
+		return -1, err
+	}
+
+	return balance, nil
+}
