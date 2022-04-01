@@ -59,6 +59,7 @@ func (d DB) Auth(pin string) (Account, error) {
 		log.Error().Err(err).Msg("scan failed")
 		return acc, err
 	}
+	res.Close()
 
 	return acc, nil
 }
@@ -94,6 +95,7 @@ func (d DB) Balance(acc Account) (int64, error) {
 		log.Error().Err(err).Msg("scan failed")
 		return -1, err
 	}
+	res.Close()
 
 	return balance, nil
 }
@@ -148,7 +150,6 @@ func (d DB) DoTransaction(acc Account, tx Transaction) error {
 			err,
 		))
 	}
-	log.Info().Msg("Done preparing update")
 
 	_, err = bup.Exec(acc, tx.getAmount(), acc)
 	if err != nil {
@@ -158,8 +159,6 @@ func (d DB) DoTransaction(acc Account, tx Transaction) error {
 
 	bup.Close()
 
-	log.Info().Msg("Done update")
-
 	txIns, err := dbTx.Prepare(transactionInsertQuery)
 	if err != nil {
 		panic(fmt.Sprintf(
@@ -167,15 +166,12 @@ func (d DB) DoTransaction(acc Account, tx Transaction) error {
 			err,
 		))
 	}
-	log.Info().Msg("Done preparing insert query")
 
 	_, err = txIns.Exec(acc, tx.getAmount())
 	if err != nil {
 		log.Error().Err(err).Int("account_id", int(acc)).Msg("failed to insert transaction")
 		return dbTx.Rollback()
 	}
-
-	log.Info().Msg("Done insert query")
 
 	txIns.Close()
 
