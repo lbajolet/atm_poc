@@ -5,10 +5,9 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE TABLE IF NOT EXISTS transactions (
-	id int,
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	amount int,
 	user int,
 
-	PRIMARY KEY(id),
 	FOREIGN KEY(user) REFERENCES users(id)
 );
